@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Belote / Coinche</title>
+  <style>
+    body { background:#0b6623; color:#fff; font-family:Arial; margin:0; }
+    h1 { text-align:center; margin:14px 0; }
+    .panel { max-width:1200px; margin: 0 auto; padding: 12px; }
+
+    button, select, input { padding:8px; margin:5px; border-radius:10px; border:0; }
+    button { cursor:pointer; }
+
+    .topbar { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .muted { opacity:0.85; }
+    .error { color:#ffd5d5; margin-top:8px; }
+
+    /* ✅ en jeu : on veut un vrai plein écran */
+    #room { padding: 10px 14px 18px; }
+    #inGameUI { display:none; }
+    #gameRoot { width:100%; }
+
+    /* Option: pas de scroll horizontal */
+    * { box-sizing:border-box; }
+  </style>
+</head>
+<body>
+  <h1>🂡 Belote / Coinche</h1>
+
+  <!-- ===== LOBBY GLOBAL ===== -->
+  <div id="lobby" class="panel">
+    <input id="nameInput" placeholder="Ton prénom">
+    <select id="gameSelect">
+      <option value="belote">Belote</option>
+      <option value="coinche">Coinche</option>
+    </select>
+    <button id="createBtn">Créer une table</button>
+
+    <div id="lobbyError" class="error"></div>
+
+    <h2>Tables ouvertes</h2>
+    <div id="roomsHint" class="muted"></div>
+    <div id="rooms"></div>
+  </div>
+
+  <!-- ===== SALLE ===== -->
+  <div id="room" class="panel" style="display:none;">
+    <div class="topbar">
+      <div>
+        <h2 id="roomTitle" style="margin:0;"></h2>
+        <div id="roomSubtitle" class="muted"></div>
+      </div>
+      <button id="leaveBtn">Quitter</button>
+    </div>
+
+    <!-- ===== AVANT-PARTIE ===== -->
+    <div id="preGameLobby" style="margin-top:12px; background:rgba(0,0,0,0.18); border-radius:16px; padding:12px;">
+      <div style="font-weight:800; margin-bottom:8px;">Joueurs dans la table</div>
+      <div id="playersList"></div>
+
+      <div id="waitingHint" class="muted" style="margin-top:10px;">En attente de 4 joueurs…</div>
+
+      <button id="startBtn" style="display:none; margin-top:10px;">▶️ Lancer la partie</button>
+      <div id="roomError" class="error" style="margin-top:8px;"></div>
+    </div>
+
+    <!-- ✅ EN JEU : plein écran, on n'affiche QUE le tapis -->
+    <div id="inGameUI" style="display:none; margin-top:12px;">
+      <div id="gameRoot"></div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/cards.js"></script>
+  <script src="/js/render.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
