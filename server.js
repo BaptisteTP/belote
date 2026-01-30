@@ -16,6 +16,9 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+const TRICK_DELAY_MS = 1200;  // délai après un pli (4 cartes)
+const HAND_DELAY_MS  = 1600;  // délai après fin de manche (8 plis)
+
 app.use(express.static(path.join(__dirname, "public")));
 
 // -----------------------------
@@ -188,6 +191,10 @@ function createInitialState() {
     scores: { NS: 0, EW: 0 },
 
     belote: {}, // sid -> {hasQ,hasK,saidBelote,saidRebelote}
+
+    trickFrozen: false,
+    pendingTrick: null,
+
   };
 }
 
@@ -231,6 +238,8 @@ function publicSnapshot(roomId) {
 
       pointsWon: st.pointsWon,
       scores: st.scores,
+
+      tricksWon: st.tricksWon,
     },
   };
 }
@@ -636,6 +645,77 @@ function resolveTrick(roomId) {
   for (const sid of room.order) sendYourHand(roomId, sid);
 }
 
+function resolveTrickWithDelay(roomId) {
+  const room = rooms[roomId];
+  const st = room.state;
+
+  const trump = st.contract.trump;
+  const winnerIdx = computeTrickWinnerIndex(roomId);
+  const winnerSid = room.order[winnerIdx];
+  const winnerTeam = teamOf(room, winnerSid);
+
+  let pts = 0;
+  for (const t of st.trick) pts += pointsOfCard(t.card, trump);
+  if (st.trickNo === 7) pts += 10;
+
+  st.pendingTrick = {
+    trickNo: st.trickNo,
+    winnerIdx,
+    winnerSid,
+    winnerTeam,
+    pts,
+    cards: st.trick.map(x => ({ sid: x.sid, card: x.card })),
+  };
+
+  st.trickFrozen = true;
+  st.currentPlayerSid = null;
+
+  emitGameState(roomId);
+  for (const sid of room.order) sendYourHand(roomId, sid);
+
+  setTimeout(() => applyPendingTrick(roomId), TRICK_DELAY_MS);
+}
+
+function applyPendingTrick(roomId) {
+  const room = rooms[roomId];
+  if (!room) return;
+  const st = room.state;
+  if (!st.pendingTrick) return;
+
+  const p = st.pendingTrick;
+
+  st.pointsWon[p.winnerTeam] += p.pts;
+  st.tricksWon[p.winnerTeam] += 1;
+
+  st.lastTrick = {
+    trickNo: p.trickNo + 1,
+    winnerSid: p.winnerSid,
+    points: p.pts,
+    cards: p.cards,
+  };
+
+  st.leaderIndex = p.winnerIdx;
+  st.trick = [];
+  st.trickNo += 1;
+
+  st.trickFrozen = false;
+  st.pendingTrick = null;
+
+  if (st.trickNo >= 8) {
+    emitGameState(roomId);
+    for (const sid of room.order) sendYourHand(roomId, sid);
+
+    setTimeout(() => finishHandAndRedeal(roomId), HAND_DELAY_MS);
+    return;
+  }
+
+  st.currentPlayerSid = room.order[st.leaderIndex];
+
+  emitGameState(roomId);
+  for (const sid of room.order) sendYourHand(roomId, sid);
+}
+
+
 function finishHandAndRedeal(roomId) {
   const room = rooms[roomId];
   const st = room.state;
@@ -926,6 +1006,7 @@ io.on("connection", (socket) => {
 
     if (st.phase !== "playing") return;
     if (st.currentPlayerSid !== socket.id) return;
+    if (st.trickFrozen) return;
 
     const hand = st.hands[socket.id] || [];
     const idx = hand.findIndex((c) => c.rank === card.rank && c.suit === card.suit);
@@ -944,9 +1025,10 @@ io.on("connection", (socket) => {
     st.trick.push({ sid: socket.id, card: played });
 
     if (st.trick.length === 4) {
-      resolveTrick(roomId);
+      resolveTrickWithDelay(roomId);
       return;
     }
+
 
     nextPlayerInTrick(roomId);
 

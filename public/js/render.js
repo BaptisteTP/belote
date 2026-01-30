@@ -255,6 +255,8 @@
           overflow:hidden;
         }
 
+        .hand .cardUI{ width:112px; height:160px; }
+
         .cardUI::after{
           content:"";
           position:absolute;
@@ -437,7 +439,12 @@
           gap:12px;
           justify-content:center;
           align-items:flex-end;
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          padding-bottom: 6px;
         }
+        .handRow::-webkit-scrollbar{ height:8px; }
+
 
       </style>
 
@@ -563,7 +570,7 @@
   }
 
   // ---------- render parts ----------
-  function renderSeats(snap) {
+  function renderSeats(snap, st) {
     const ps = snap.players || [];
     const vIdx = myIndex(snap);
     if (vIdx < 0) return;
@@ -576,23 +583,48 @@
     const t = teamsLabel(snap);
     const teamOfIndex = (i) => (i % 2 === 0 ? t.AC : t.BD);
 
-    function setSeat(id, p, idx) {
+    function setSeat(id, p) {
       const el = document.getElementById(id);
       if (!el) return;
-      el.querySelector(".name").textContent = p ? p.name : "—";
-      el.querySelector(".tag").textContent = p ? teamOfIndex(idx) : "—";
-      el.style.outline = "none";
+
+      const nameEl = el.querySelector(".name");
+      const tagEl  = el.querySelector(".tag");
+
+      nameEl.textContent = p ? p.name : "—";
+
+      let badges = [];
+
+      // ▶ joueur qui doit jouer
+      if (p && st?.currentPlayerSid && p.sid === st.currentPlayerSid) {
+        badges.push("▶");
+      }
+    
+      // preneur + atout
+      const takerSid = st?.contract?.takerSid || st?.highestBid?.sid;
+      const trump = st?.contract?.trump || st?.highestBid?.trump;
+      const val = st?.contract?.value || st?.highestBid?.value;
+    
+      if (p && takerSid && p.sid === takerSid && trump) {
+        badges.push(`Preneur ${val}${suitSym(trump)}`);
+      }
+    
+      // coinche / surcoinche
+      if (st?.coinche === 1) badges.push("COINCHE");
+      if (st?.coinche === 2) badges.push("SURCOINCHE");
+    
+      tagEl.textContent = badges.join("  •  ");
     }
+
 
     const idxBottom = ps.findIndex(p => p.sid === map.bottom?.sid);
     const idxLeft = ps.findIndex(p => p.sid === map.left?.sid);
     const idxTop = ps.findIndex(p => p.sid === map.top?.sid);
     const idxRight = ps.findIndex(p => p.sid === map.right?.sid);
 
-    setSeat("seatBottom", map.bottom, idxBottom);
-    setSeat("seatLeft", map.left, idxLeft);
-    setSeat("seatTop", map.top, idxTop);
-    setSeat("seatRight", map.right, idxRight);
+    setSeat("seatBottom", map.bottom);
+    setSeat("seatLeft", map.left);
+    setSeat("seatTop", map.top);
+    setSeat("seatRight", map.right);
   }
 
   function renderPoints(st, snap) {
@@ -615,7 +647,12 @@
   function renderAnnounce(st, snap) {
     const announceBox = document.getElementById("announceBox");
     if (!announceBox) return;
-
+    
+    const coincheTxt =
+      st.coinche === 2 ? "SURCOINCHE x4" :
+      st.coinche === 1 ? "COINCHE x2" :
+      "";
+    
     // pendant enchères : highestBid ; après : contract
     if (st.phase === "bidding") {
       if (!st.highestBid) {
@@ -623,20 +660,27 @@
         return;
       }
       const who = resolveBidderName(snap, st.highestBid);
-      announceBox.innerHTML = `<div class="big">${st.highestBid.value}${suitSym(st.highestBid.trump)}</div>
-        <div class="small">par <b>${esc(who)}</b></div>`;
+      announceBox.innerHTML = `
+        <div class="big">${st.highestBid.value}${suitSym(st.highestBid.trump)}</div>
+        <div class="small">par <b>${esc(who)}</b></div>
+        ${coincheTxt ? `<div class="small" style="margin-top:4px;font-weight:900;">${coincheTxt}</div>` : ""}
+      `;
       return;
     }
-
+  
     if (st.contract) {
       const who = resolveBidderName(snap, st.contract);
-      announceBox.innerHTML = `<div class="big">${st.contract.value}${suitSym(st.contract.trump)}</div>
-        <div class="small">preneur : <b>${esc(who)}</b></div>`;
+      announceBox.innerHTML = `
+        <div class="big">${st.contract.value}${suitSym(st.contract.trump)}</div>
+        <div class="small">preneur : <b>${esc(who)}</b></div>
+        ${coincheTxt ? `<div class="small" style="margin-top:4px;font-weight:900;">${coincheTxt}</div>` : ""}
+      `;
       return;
     }
-
+  
     announceBox.innerHTML = `<span class="muted">Aucune annonce.</span>`;
   }
+
 
   function renderBiddingMid(st, snap) {
     const mid = document.getElementById("biddingMid");
@@ -800,28 +844,33 @@
 
   // ---------- Belote / Rebelote toast ----------
   let toastTimer = null;
-  function maybeToastFromMessages(st, snap) {
+  let lastToastMsg = "";
+  
+  function maybeToastFromMessages(st) {
     const toast = document.getElementById("toast");
     if (!toast) return;
-
+  
     const msgs = st.messages || [];
     if (msgs.length === 0) return;
-
+  
     const last = String(msgs[msgs.length - 1] || "");
     const low = last.toLowerCase();
-
-    // on déclenche seulement sur belote/rebelote
+  
     if (!low.includes("belote") && !low.includes("rebelote")) return;
-
+  
+    if (last === lastToastMsg) return; 
+    lastToastMsg = last;
+  
     toast.textContent = last;
     toast.style.display = "block";
-
+  
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
       toast.style.display = "none";
       toast.textContent = "";
-    }, 2500);
+    }, 3000); 
   }
+
 
   // ---------- API called by app.js ----------
   window.renderGameState = function (snap) {
@@ -833,7 +882,7 @@
 
     const st = snap.state;
 
-    renderSeats(snap);
+    renderSeats(snap, st);
     renderPoints(st, snap);
     renderAnnounce(st, snap);
     renderBiddingMid(st, snap);
